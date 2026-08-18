@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoramento ESP32 LoRa</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="chart.umd.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Painel de Sensores BME280</h1>
+
+        <div class="botoes-container">
+            <a href="https://docs.google.com/spreadsheets/d/SEU_ID_AQUI/edit" target="_blank" class="btn btn-planilha">
+                Visualizar no Sheets
+            </a>
+            <a href="https://docs.google.com/spreadsheets/d/SEU_ID_AQUI/export?format=csv" download class="btn btn-download">
+                Baixar Histórico (.csv)
+            </a>
+        </div>
+        <div class="grid-graficos">
+            <div class="grafico-card">
+                <h2>Temperatura (°C)</h2>
+                <div class="canvas-container">
+                    <canvas id="graficoTemp"></canvas>
+                </div>
+            </div>
+
+            <div class="grafico-card">
+                <h2>Umidade (%)</h2>
+                <div class="canvas-container">
+                    <canvas id="graficoUmid"></canvas>
+                </div>
+            </div>
+
+            <div class="grafico-card">
+                <h2>Pressão (hPa)</h2>
+                <div class="canvas-container">
+                    <canvas id="graficoPres"></canvas>
+                </div>
+            </div>
+
+            <div class="grafico-card">
+                <h2>Altitude (m)</h2>
+                <div class="canvas-container">
+                    <canvas id="graficoAlti"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

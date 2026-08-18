@@ -1,0 +1,62 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #e9ecef;
+    color: #333;
+    display: flex;
+    justify-content: center;
+    padding: 30px 15px;
+}
+
+.container {
+    width: 100%;
+    max-width: 1200px; /* Aumentado para caber 2 gráficos lado a lado */
+    background-color: transparent;
+}
+
+h1 { text-align: center; margin-bottom: 25px; color: #2c3e50; }
+
+.botoes-container {
+    display: flex; justify-content: center; gap: 15px;
+    margin-bottom: 30px; flex-wrap: wrap;
+}
+
+.btn {
+    text-decoration: none; padding: 12px 24px;
+    border-radius: 6px; color: white; font-weight: 600;
+    transition: background-color 0.3s ease;
+}
+
+.btn-planilha { background-color: #27ae60; }
+.btn-planilha:hover { background-color: #219653; }
+.btn-download { background-color: #2980b9; }
+.btn-download:hover { background-color: #2471a3; }
+
+/* ---- NOVA GRADE DE GRÁFICOS ---- */
+.grid-graficos {
+    display: grid;
+    /* Faz o layout responsivo automático (2 colunas no PC, 1 no Celular) */
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.grafico-card {
+    background-color: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+}
+
+.grafico-card h2 {
+    font-size: 1.1rem;
+    text-align: center;
+    margin-bottom: 15px;
+    color: #555;
+}
+
+.canvas-container {
+    position: relative;
+    width: 100%;
+    height: 250px; /* Altura fixa para cada gráfico individual */
+}
