@@ -37,7 +37,29 @@ SSD1306 display (OLED_I2C_ADDR, OLED_SDA, OLED_SCL);
 #define NET_NAME "YYYY"
 #define PASS "XXXX"
 
-#define BOT_TOKEN "TOKEN_BOT"
+#define BOT_TOKEN "8943822736:AAFj5-B3cNi1ybGmDPWTOkC0Yb8QrjS9Vo4"
+
+const char* validoChatIds[] = {
+  "8895625689",   // Pessoa 1
+  "XXXX",   // Pessoa 2
+};
+
+const int numUserAutorizado =
+  sizeof(validoChatIds) / sizeof(validoChatIds[0]);
+
+bool isAuthorized(String chat_id) {
+
+  for (int i = 0; i < numUserAutorizado; i++) {
+
+    if (chat_id == validoChatIds[i]) {
+      return true;
+    }
+
+  }
+
+  return false;
+}
+  
 WiFiClientSecure clientTelegram;
 UniversalTelegramBot bot(BOT_TOKEN, clientTelegram);
 
@@ -150,6 +172,20 @@ void setup() {
     }
     //==========================================================================
 
+    bool enviado = bot.sendMessage(
+        MY_ID,
+        "Lora conectado ao Telegram!",
+        ""
+    );
+
+    if (enviado)
+    {
+        Serial.println("Mensagem enviada com sucesso!");
+    }
+    else
+    {
+        Serial.println("Erro ao enviar mensagem.");
+    }
 }
 
 void loop() {
@@ -198,13 +234,13 @@ void loop() {
     }
     
     if (tempoAtual - tempoAnteriorTelegram >= 1500) {
-        tempoAnteriorTelegram = tempoAtual;
-
+    
         int numMensagens = bot.getUpdates(bot.last_message_received + 1);
         while (numMensagens) {
             VerificaMsgTele(numMensagens);
             numMensagens = bot.getUpdates(bot.last_message_received + 1);
         }
+         tempoAnteriorTelegram = tempoAtual;
     }
 }
 
@@ -243,6 +279,12 @@ void enviarEmailAlerta() {
 void VerificaMsgTele(int numMensagens) {
     for (int i = 0; i < numMensagens; i++) {
         String chat_id = bot.messages[i].chat_id;
+        
+        if (!isAuthorized(chat_id)) {
+            bot.sendMessage(chat_id, "Usuário não autorizado", "");
+            continue;
+        }
+
         String texto = bot.messages[i].text;
 
         if (texto == "/status") {
