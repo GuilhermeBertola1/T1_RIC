@@ -46,15 +46,16 @@ Adafruit_BME280 bme; // I2C
 #define OLED_SCL      15
 SSD1306 display (OLED_I2C_ADDR, OLED_SDA, OLED_SCL);
 
-#define NET_NAME "YYYY"
-#define PASS "XXXX"
-
+#define MY_ID "8895625689"
 #define BOT_TOKEN "8943822736:AAFj5-B3cNi1ybGmDPWTOkC0Yb8QrjS9Vo4"
 
-const char* validoChatIds[] = {
+const char * ssid = "labautomacao";
+const char * pwd = "L@bA1to25";
+
+/*const char* validoChatIds[] = {
   "8895625689",   // Pessoa 1
   "XXXX",   // Pessoa 2
-};
+};*/
 
 const int numUserAutorizado =
   sizeof(validoChatIds) / sizeof(validoChatIds[0]);
@@ -96,6 +97,10 @@ DadosBME readSensorBME();
 void enviarEmailAlerta();
 void VerificaMsgTele(int numMensagens);
 
+
+void tokenStatusCallback(TokenInfo info);
+
+
 void setup() {
     // Inicialização Serial  UART
     Serial.begin(115200);
@@ -122,6 +127,19 @@ void setup() {
     Serial.println(IP);
 
     WiFi.setAutoReconnect(true);
+
+    
+    clientTelegram.setInsecure();
+    clientEmail.setInsecure();
+
+    configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.print("Sincronizando hora via NTP");
+    while (time(nullptr) < 100000) {
+        Serial.print(".");
+        delay(100);
+    }
+    Serial.println(" OK");
+
 
     GSheet.setTokenCallback(tokenStatusCallback);
     GSheet.setPrerefreshSeconds(10 * 60);
@@ -281,27 +299,43 @@ DadosBME readSensorBME() {
 }
 
 void enviarEmailAlerta() {
-    ESP_Mail_Session session;
-    session.server.host_name = "smtp.gmail.com";
-    session.server.port = 465;
-    session.login.email = "seu_email@gmail.com";
-    session.login.password = "Senha_API";
-
-    SMTP_Message message;
-    message.sender.name = "ESP32 LoRa";
-    message.sender.email = "seu_email@gmail.com";
-    message.subject = "Alerta: 25 Leituras Concluídas!";
-    message.addRecipient("Responsável", "email_destino@gmail.com");
-    message.text.content = "O ESP32 acabou de registrar e salvar 25 novas leituras no Google Sheets.";
-
-    if (smtp.connect(&session)) {
-        MailClient.sendMail(&smtp, &message);
-        Serial.println("E-mail de alerta enviado com sucesso!");
-    } else {
-        Serial.print("Erro ao enviar e-mail: ");
-        Serial.println(smtp.errorReason());
+    const char* smtp_host = "smtp.gmail.com";
+    const int smtp_port = 465;
+ 
+    const char* email_remetente = "seu_email@gmail.com";
+    const char* senha_app = "Senha_API";
+    const char* email_destinatario = "email_destino@gmail.com";
+ 
+    auto statusCallback = [](SMTPStatus status) {
+        Serial.println(status.text);
+    };
+ 
+    smtp.connect(smtp_host, smtp_port, statusCallback);
+ 
+    if (!smtp.isConnected()) {
+        Serial.println("Falha ao conectar no servidor SMTP.");
+        return;
     }
+ 
+    smtp.authenticate(email_remetente, senha_app, readymail_auth_password);
+ 
+    if (!smtp.isAuthenticated()) {
+        Serial.println("Falha na autenticação SMTP (verifique a senha de app).");
+        return;
+    }
+ 
+    SMTPMessage msg;
+    msg.headers.add(rfc822_from, String("ESP32 <") + email_remetente + ">");
+    msg.headers.add(rfc822_to, email_destinatario);
+    msg.headers.add(rfc822_subject, "Alerta: 25 Leituras Concluidas!");
+    msg.text.body("O ESP32 acabou de registrar e salvar 25 novas leituras no Google Sheets.");
+ 
+    msg.timestamp = time(nullptr);
+ 
+    Serial.println("Enviando e-mail de alerta...");
+    smtp.send(msg);
 }
+
 
 void VerificaMsgTele(int numMensagens) {
     for (int i = 0; i < numMensagens; i++) {
@@ -338,5 +372,14 @@ void VerificaMsgTele(int numMensagens) {
             ajuda += "/led_off - Desliga o LED";
             bot.sendMessage(chat_id, ajuda, "");
         }
+    }
+}
+
+
+void tokenStatusCallback(TokenInfo info) {
+    if (info.status == token_status_error) {
+        Serial.printf("Erro no token: %s\n", GSheet.getTokenError(info).c_str());
+    } else {
+        Serial.printf("Token: %s\n", GSheet.getTokenStatus(info).c_str());
     }
 }
