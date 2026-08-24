@@ -15,6 +15,18 @@
 #include <LittleFS.h> // Biblioteca para acessar os arquivos
 
 
+// Do JSON da service account:
+#define PROJECT_ID "fit-bulwark-263523"
+#define CLIENT_EMAIL "projeto-ric1@fit-bulwark-263523.iam.gserviceaccount.com"
+
+const char PRIVATE_KEY[] PROGMEM =
+"-----BEGIN PRIVATE KEY-----\n"
+"MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDILmkfzHhVljz8\nEYIRw6IR52TnSP74y94qVOhcaF6+Sr0VDbmf1Gw34M5wCn5C8dgPXDzGloXWQSjb\n74M10R5pwUqq2hapq3M10YNkelri6OW191VfDL6mteJiVNp8qE0rrY9ULLFO1cHH\nlrs3+Fbal0FUj4GQFQd27aXC2odSBdSkD+HxVNVnoS4yZRJJpo996B8WJm02zMKr\n8UbE4NRcT/E5gU9wvm6eqrqitv3K3l4vNtLbeCTprr4EjjEIONYwxBffESQrgmHC\nW932W04ZSSYKXoUKcj9tmkd7uuvsYjVMlRRtv/fe9sZcHdv+FN9fYEybeb9G7dhI\n15r+xbEHAgMBAAECggEAFKj0O45toEkEW/BDUCm0iTbXAKcq0tWuRQiEqhOG17U8\npOFzliMlKh00YSGMHMT7YMEgb/nVWqKt9gkBreUPx6gQgz1FQoH0lDTejoOxlqKl\nIUMjbKRoQX9wcRKYhsNoojM5oYfdTX7H5Ef9DuPoCYu7zTTkZnuXzMvueYOhR13Y\nvqzO5ra3h9+UT9soAZ+hslGGRME8hluD6YbIkkYF6IrXFTuMPIQjFHIBM+6z/aQb\nXS7qyFf/aYCiJmWJ1QSCwWv7yK4But1nsCp/ciZHYxawwPJ69yqTz69w/BRNmw1u\nPUcpbkeWOJCJooEXEdCA348NuztLnjGTqY2wTLzHkQKBgQD5Dwy92Lm/Po1SCgEu\n7xuToTi7Q8MCD5vPV3dI6H/CZ7yztfWAizAfa0zYRvfQ4XHUTxp8OtGEJ5UUhNRo\nhCGK4LRUfZuK47K67LjgVCEKmT4IAiTcXdTFaL8aCo05wA85YlqUv9OXiZfWU2Zu\n4fTI8M/mZVLok/Vv71DzOy2+cQKBgQDNwqLvE3dxbakz3hN9o2O0PGUvVz+fUtD0\n9LTa0ULEARMbMfv5FSRzP4NKrVn1juSwIQ96QHyMwV3lnRUlmHjTTFMP+sdELVGI\nW4sfhXXshfnz5tWIy0okRrPnRTz/p3mcIB871QUhDTWf+hRhBVtWo6fMKGyjAUVv\nOhRj768S9wKBgQC7FnEN01WEsapa7CUDap4egccp9LbyP2Ndl2iFnhEKqf54SMFI\ndEYL9ABfnr/datylDV7p3w0v5sP4C+e7MzY3KqCLr2c+J9lEzTn7WXcQjRipz2J9\nHwcL26liGHcJ4JoPEzDT+F0rwjIKz89sj9PfdfXWLlrfVvXRxcXbUKMGIQKBgCTL\nBCWqHnaq/FGpCWUy/VYyYomXmWnc/j5/L4PdXYn9AzSeuIbuz+jH16tX2jk9xwjz\nsHfU5jCpNygi8bAaVqi6AjReTJmVXPn8HKGTVOXpgyupAFAIwgZAmlTlnaW9hdJ0\nMAGb8uHZIdiseE5tDcstUokARYTUal0cTp8cMfs7AoGBAKoeXKJiOwc3+kQZ6194\nsL2dNjaIwpy0lPkZfAoiKaJOvHp6j3sRGyhdkiXjRrKvw7+doEFAB4KHSHGyua2g\nt0mD6bgwRcMb5Vu3IDFHkDMbTHjxmgxlRbtNR4PzVT8n/Nj0ICIREmzG0Jm6jhgl\nypik9+5mhW3pvy6wwrRVawlO\n", 
+"-----END PRIVATE KEY-----\n";
+
+#define SPREADSHEET_ID "1c7nE1SQTm5SBzU9dcC4Gqow2yPVllpm7s7lgnBHRF9Y/edit?gid=0#gid=0"
+
+
 //Definições
 #define LEDPIN 25 //Led interno da placa
 #define BUTTON 0 //Botão PRG ou EN da placa
@@ -108,6 +120,12 @@ void setup() {
     IPAddress IP = WiFi.localIP();
     Serial.print("IP address: ");
     Serial.println(IP);
+
+    WiFi.setAutoReconnect(true);
+
+    GSheet.setTokenCallback(tokenStatusCallback);
+    GSheet.setPrerefreshSeconds(10 * 60);
+    GSheet.begin(CLIENT_EMAIL, PROJECT_ID, PRIVATE_KEY);
 
     //Server
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -215,8 +233,10 @@ void loop() {
             value.set("values/[0]/[1]", valor_sensor.umidade);
             value.set("values/[0]/[2]", valor_sensor.pressao);
             value.set("values/[0]/[3]", valor_sensor.altitude);
-            
-            if (GSheet.values.append(&response, "SEU_ID_DA_PLANILHA", "Página1!A:D", &value)) {
+            value.add("majorDimension", "ROWS");
+
+
+            if (GSheet.values.append(&response, SPREADSHEET_ID, "Página1!A:D", &value)) {
                 Serial.println("Dado salvo com sucesso no Google Sheets!");
                 contadorLeituras++;
                 Serial.print("Total de leituras salvas: ");
@@ -232,7 +252,14 @@ void loop() {
             }
         }
     }
-    
+    googleSheetsLoop();
+     googleSheetsSendData(
+            temperatura,
+            umidade,
+            pressao,
+            altitude
+        );
+
     if (tempoAtual - tempoAnteriorTelegram >= 1500) {
     
         int numMensagens = bot.getUpdates(bot.last_message_received + 1);
