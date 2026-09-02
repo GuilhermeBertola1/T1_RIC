@@ -1,381 +1,416 @@
-#include <Arduino.h> // conversor .ino para esp
-#include <Wire.h>  // I2C lib
-#include <Adafruit_Sensor.h> // Sensor lib
+#include <Arduino.h>
+#include <Wire.h>
+#include <time.h>
+
+#include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
-#include <SSD1306.h> // Display OLED
-#include <WiFi.h> // Wifi esp32
-#include <WiFiClientSecure.h> //necessario conexao telegram
+#include <SSD1306.h>
+
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h> // interface servidor no IP esp32
-#include <UniversalTelegramBot.h> // Bot telegram
-#include <ESP_Mail_Client.h> // mensagem no email
-#include <FirebaseJson.h> // lib dep
+#include <ESPAsyncWebServer.h>
+#include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
-#include <ESP_Google_Sheet_Client.h> // Google sheet
-#include <LittleFS.h> // Biblioteca para acessar os arquivos
-#include "GoogleSheetsClient.h"
+#include <LittleFS.h>
 
+// ---- Google Sheets ----
+#include <FirebaseJson.h>
+#include <ESP_Google_Sheet_Client.h>
 
-// Do JSON da service account:
-#define PROJECT_ID "fit-bulwark-263523"
-#define CLIENT_EMAIL "projeto-ric1@fit-bulwark-263523.iam.gserviceaccount.com"
+// ---- E-mail ----
+#define ENABLE_SMTP
+#define ENABLE_DEBUG
+#include <ReadyMail.h>
 
-const char PRIVATE_KEY[] PROGMEM =
-"-----BEGIN PRIVATE KEY-----\n"
-"MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDILmkfzHhVljz8\nEYIRw6IR52TnSP74y94qVOhcaF6+Sr0VDbmf1Gw34M5wCn5C8dgPXDzGloXWQSjb\n74M10R5pwUqq2hapq3M10YNkelri6OW191VfDL6mteJiVNp8qE0rrY9ULLFO1cHH\nlrs3+Fbal0FUj4GQFQd27aXC2odSBdSkD+HxVNVnoS4yZRJJpo996B8WJm02zMKr\n8UbE4NRcT/E5gU9wvm6eqrqitv3K3l4vNtLbeCTprr4EjjEIONYwxBffESQrgmHC\nW932W04ZSSYKXoUKcj9tmkd7uuvsYjVMlRRtv/fe9sZcHdv+FN9fYEybeb9G7dhI\n15r+xbEHAgMBAAECggEAFKj0O45toEkEW/BDUCm0iTbXAKcq0tWuRQiEqhOG17U8\npOFzliMlKh00YSGMHMT7YMEgb/nVWqKt9gkBreUPx6gQgz1FQoH0lDTejoOxlqKl\nIUMjbKRoQX9wcRKYhsNoojM5oYfdTX7H5Ef9DuPoCYu7zTTkZnuXzMvueYOhR13Y\nvqzO5ra3h9+UT9soAZ+hslGGRME8hluD6YbIkkYF6IrXFTuMPIQjFHIBM+6z/aQb\nXS7qyFf/aYCiJmWJ1QSCwWv7yK4But1nsCp/ciZHYxawwPJ69yqTz69w/BRNmw1u\nPUcpbkeWOJCJooEXEdCA348NuztLnjGTqY2wTLzHkQKBgQD5Dwy92Lm/Po1SCgEu\n7xuToTi7Q8MCD5vPV3dI6H/CZ7yztfWAizAfa0zYRvfQ4XHUTxp8OtGEJ5UUhNRo\nhCGK4LRUfZuK47K67LjgVCEKmT4IAiTcXdTFaL8aCo05wA85YlqUv9OXiZfWU2Zu\n4fTI8M/mZVLok/Vv71DzOy2+cQKBgQDNwqLvE3dxbakz3hN9o2O0PGUvVz+fUtD0\n9LTa0ULEARMbMfv5FSRzP4NKrVn1juSwIQ96QHyMwV3lnRUlmHjTTFMP+sdELVGI\nW4sfhXXshfnz5tWIy0okRrPnRTz/p3mcIB871QUhDTWf+hRhBVtWo6fMKGyjAUVv\nOhRj768S9wKBgQC7FnEN01WEsapa7CUDap4egccp9LbyP2Ndl2iFnhEKqf54SMFI\ndEYL9ABfnr/datylDV7p3w0v5sP4C+e7MzY3KqCLr2c+J9lEzTn7WXcQjRipz2J9\nHwcL26liGHcJ4JoPEzDT+F0rwjIKz89sj9PfdfXWLlrfVvXRxcXbUKMGIQKBgCTL\nBCWqHnaq/FGpCWUy/VYyYomXmWnc/j5/L4PdXYn9AzSeuIbuz+jH16tX2jk9xwjz\nsHfU5jCpNygi8bAaVqi6AjReTJmVXPn8HKGTVOXpgyupAFAIwgZAmlTlnaW9hdJ0\nMAGb8uHZIdiseE5tDcstUokARYTUal0cTp8cMfs7AoGBAKoeXKJiOwc3+kQZ6194\nsL2dNjaIwpy0lPkZfAoiKaJOvHp6j3sRGyhdkiXjRrKvw7+doEFAB4KHSHGyua2g\nt0mD6bgwRcMb5Vu3IDFHkDMbTHjxmgxlRbtNR4PzVT8n/Nj0ICIREmzG0Jm6jhgl\nypik9+5mhW3pvy6wwrRVawlO\n"
-"-----END PRIVATE KEY-----\n";
+// =====================================================================
+//  CONFIGURAÇÃO
+// =====================================================================
 
-#define SPREADSHEET_ID "1c7nE1SQTm5SBzU9dcC4Gqow2yPVllpm7s7lgnBHRF9Y/edit?gid=0#gid=0"
+// ------------------------------ WiFi ---------------------------------
+const char *WIFI_SSID = "BERTOLA_2.4G";
+const char *WIFI_PASS = "170704gui";
 
+// ------------------------- Google Sheets -----------------------------
+#define PROJECT_ID   "t1ric-507422"
+#define CLIENT_EMAIL "t1ric-teste@t1ric-507422.iam.gserviceaccount.com"
 
-//Definições
-#define LEDPIN 25 //Led interno da placa
-#define BUTTON 0 //Botão PRG ou EN da placa
+#define SPREADSHEET_ID "1XZfgr09i9FXPgj2rR4LeXOm5bVDbJbo2VzwFvYy5pNQ"
 
-// Definições do Sensor BME 280
-//#define SEALEVELPRESSURE_HPA (1013.25)
-#define SEALEVELPRESSURE_HPA (1029.9) //Sorocaba
-#define I2C_SDA 21            // se definindo portas I2C
-#define I2C_SCL 22            // se definindo portas I2C
-TwoWire I2CBME = TwoWire(1);  // se definindo portas I2C entre OLED e BME280,OLED usa por padrão Wire(0) e BME280 vai usar Wire(1)
-Adafruit_BME280 bme; // I2C
+#define SHEET_RANGE "Dados!A:E"
 
-// Definições do Display OLED
+const char PRIVATE_KEY[] PROGMEM = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDGONG+xlKczpmS\njwF2mY95Ys4hP5OY7lb1lf6sR/4G86vgiDdjv2+QWed9z641uGpQ6x+a40l12MO1\nx2sAyEkqdHzxgC99326tfStYCyyyrNOEvxsK+77bn0DicoIPTpi3jX0J+XGSM1yI\nZoRuKfOHd/J9PLZgtbquo89XhBqrs5aM1L9zLG0KTfvWLhMHB7l+lKQ6Ta66E1f4\nnp2hYT2iPArZsL02YleOHzt2mHMRaPCybjbEgue5kPXB8zjk34iVeub6p0KsLcGE\ndWCeqlWYdopEwCxM2zKMdaECUdM6IMz+Pip4ogx8RAXXH2QhI2NnNC+9lZsZK/9U\n9IJLN38NAgMBAAECggEAEvVEOjbFl/G6hmXfAfTV4AovJMbr2uiQsJRT8y4/gXK0\nsZjVk1iv1uKCXWoLg1/L60lRkILEd9zveudDuKNvO/xAJujXofZIo5chGh6Xe89D\nu6J7d6V0L5Ufo4jIH6aovIVvvBB7aDw5UWJcsBybCg3Sx1+TIdS/sgxAvGIKGvm7\nCETCMWnCkjnyp1/uukH2q5n32YLaLnzggzj/1F3S+JuvNUxFAxFJoAXpZ8PDYiB9\nMqj2fRM8PYoClPV3RvfL+hvO0rxVEi/P3UvagHh6t+bus5OrhKAoTuz4PtX1NIji\n6du0zaWwLdcPs1oveMjuG5a63NGp0up3CDUGmo4lAQKBgQDkgkXqEHuYcoB5RDrw\n2yV2SoiA5+jaKnsGEYlhsJIcY0MtSn6PHeFelrPhm5c99dhGjYtj8oAuoFt++mHC\nNMq45G75mzFnXjoD6X6afE+ZzqA5gUAPh+HlCkfcYkpf2EAtBVGqAyC8iWX9E+oi\nBSvEUn8nWkk4A7vNxh+KCo1D/QKBgQDeEcE21BIzBWcKmlbdyyQQATai70gW/2DQ\nrF8dqVleFV4pfG4K1cFP01VmsXYNKxclMjGvH2CbVWZ4SsCBIDDKYs0nwVprIVDw\n26t4B8RNqWwuriphX18LN8sgclvpO7oXnC+zidMV+MeW9XLlhVL9fL1DtZ15R0EQ\nSOhLwGOsUQKBgHKAEJZbkgLuhQ++r6YWuWvPpxyomBYRqTl+Og+4UU5mMrgUFtyR\nxWcHLrWCqENE2A1qSYlYbwBuG8rBnZCZsWb6F9189UFthraFHoo8dgqE7eZCrJ3b\nocaJ4z48BjaGfonQm34MOTAfzPoGK5DGdIrYJ5zJcdzeihFvEEi0RtrlAoGAd2VM\nYNI8xrnM4OKCedVSmlhMq+XC+Lptr0Q+D5CRwAf1DJEeCS1MNkMF06TuN75HP3Rx\nShqwslOEOIDYZ5SLJwVgEFPg7WCISDeTRYHHhYnl5GM33gqM61cgG13hFNFMCI2t\nB/a+Sz3q8bsd/1FjgW6jw9fNxvsMfFj2rGPQM0ECgYEAq8A29sy4oWj29QTI0Y/n\nnnnFuuaM1crwKw8Z8WYd1ooIzOqgH3+IQpk8CJpegU33IyEhGGKthV/4XYUadDQq\nNc1+HhmUHIJcXrreKPBKSRE5Sz67gB1tXV+6V4biE7wj7xvknlViVtiZwc1DePNt\nIwMKSW+dBCgM+SvaSt8RXLY=\n-----END PRIVATE KEY-----\n";
+
+// ---------------------------- Telegram -------------------------------
+#define BOT_TOKEN "8943822736:AAFj5-B3cNi1ybGmDPWTOkC0Yb8QrjS9Vo4"
+#define MY_ID     "8895625689"
+
+const char *validoChatIds[] = {
+    MY_ID,
+};
+const int numUserAutorizado = sizeof(validoChatIds) / sizeof(validoChatIds[0]);
+
+// ------------------------------ E-mail -------------------------------
+#define SMTP_HOST       "smtp.gmail.com"
+#define SMTP_PORT       465
+#define EMAIL_REMETENTE "guilherme.bertola.123@gmail.com"
+#define EMAIL_SENHA_APP "ioby kcwd rugx lvqv"
+#define EMAIL_DESTINO   "guilherme.bertola.123@gmail.com"
+
+// ------------------------------ Pinos --------------------------------
+#define LEDPIN 25
+#define BUTTON 0
+
+// BME280 (I2C secundário)
+#define SEALEVELPRESSURE_HPA (1029.9)   // Sorocaba
+#define I2C_SDA 21
+#define I2C_SCL 22
+TwoWire I2CBME = TwoWire(1);
+Adafruit_BME280 bme;
+
+// OLED (I2C primário)
 #define OLED_I2C_ADDR 0x3C
 #define OLED_RESET    16
 #define OLED_SDA      4
 #define OLED_SCL      15
-SSD1306 display (OLED_I2C_ADDR, OLED_SDA, OLED_SCL);
+SSD1306 display(OLED_I2C_ADDR, OLED_SDA, OLED_SCL);
 
-#define MY_ID "8895625689"
-#define BOT_TOKEN "8943822736:AAFj5-B3cNi1ybGmDPWTOkC0Yb8QrjS9Vo4"
+// --------------------------- Temporizações ---------------------------
+const unsigned long INTERVALO_SSE      = 1000UL;
+const unsigned long INTERVALO_SHEETS   = 10000UL;
+const unsigned long INTERVALO_TELEGRAM = 1500UL;
+const int LEITURAS_PARA_EMAIL          = 25;
 
-const char * ssid = "labautomacao";
-const char * pwd = "L@bA1to25";
+// =====================================================================
+//  OBJETOS GLOBAIS
+// =====================================================================
 
-/*const char* validoChatIds[] = {
-  "8895625689",   // Pessoa 1
-  "XXXX",   // Pessoa 2
-};*/
-
-const int numUserAutorizado =
-  sizeof(validoChatIds) / sizeof(validoChatIds[0]);
-
-bool isAuthorized(String chat_id) {
-
-  for (int i = 0; i < numUserAutorizado; i++) {
-
-    if (chat_id == validoChatIds[i]) {
-      return true;
-    }
-
-  }
-
-  return false;
-}
-  
 WiFiClientSecure clientTelegram;
 UniversalTelegramBot bot(BOT_TOKEN, clientTelegram);
+
+WiFiClientSecure clientEmail;
+SMTPClient smtp(clientEmail);
 
 AsyncWebServer server(80);
 AsyncEventSource events("/eventos");
 
 struct DadosBME {
-  float temperatura;
-  float pressao;
-  float altitude;
-  float umidade;
+    float temperatura;
+    float pressao;
+    float altitude;
+    float umidade;
 };
 
-unsigned long tempoAnteriorSSE = 0;
-unsigned long tempoAnteriorSheets = 0;
+unsigned long tempoAnteriorSSE      = 0;
+unsigned long tempoAnteriorSheets   = 0;
 unsigned long tempoAnteriorTelegram = 0;
-int contadorLeituras = 0;
-
-SMTPSession smtp;
+int  contadorLeituras = 0;
+bool sensorOk = false;
 
 DadosBME readSensorBME();
-void enviarEmailAlerta();
-void VerificaMsgTele(int numMensagens);
+bool     salvarNoSheets(const DadosBME &d);
+bool     enviarEmailAlerta();
+void     VerificaMsgTele(int numMensagens);
+bool     isAuthorized(const String &chat_id);
+String   horaFormatada();
+void     tokenStatusCallback(TokenInfo info);
 
-
-void tokenStatusCallback(TokenInfo info);
-
-
+// =====================================================================
+//  SETUP
+// =====================================================================
 void setup() {
-    // Inicialização Serial  UART
     Serial.begin(115200);
-    Serial.println("Iniciando...");
+    delay(300);
+    Serial.println("\nIniciando...");
 
     pinMode(LEDPIN, OUTPUT);
     digitalWrite(LEDPIN, LOW);
 
-    //Memoria ESP32
-    if(!LittleFS.begin(true)){
+    // ---------------------------- LittleFS ---------------------------
+    if (!LittleFS.begin(true)) {
         Serial.println("Erro ao montar o LittleFS");
         return;
     }
-    
-    //WIFI
-    WiFi.begin(NET_NAME, PASS);
+
+    // ------------------------------ WiFi -----------------------------
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
     Serial.print("Conectando");
-    while(WiFi.status() != WL_CONNECTED){
+    while (WiFi.status() != WL_CONNECTED) {
         Serial.print(".");
+        delay(500);
     }
     Serial.println();
-    IPAddress IP = WiFi.localIP();
     Serial.print("IP address: ");
-    Serial.println(IP);
-
+    Serial.println(WiFi.localIP());
     WiFi.setAutoReconnect(true);
 
-    
     clientTelegram.setInsecure();
     clientEmail.setInsecure();
 
+    // ------------------------------- NTP -----------------------------
     configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
     Serial.print("Sincronizando hora via NTP");
-    while (time(nullptr) < 100000) {
+    while (time(nullptr) < 1700000000) {
         Serial.print(".");
-        delay(100);
+        delay(300);
     }
-    Serial.println(" OK");
+    Serial.printf(" OK -> %s\n", horaFormatada().c_str());
 
-
+    // -------------------------- Google Sheets ------------------------
     GSheet.setTokenCallback(tokenStatusCallback);
     GSheet.setPrerefreshSeconds(10 * 60);
     GSheet.begin(CLIENT_EMAIL, PROJECT_ID, PRIVATE_KEY);
 
-    //Server
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    // ----------------------------- Servidor --------------------------
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(LittleFS, "/index.html", String(), false);
     });
-
-    server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request){
+    server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(LittleFS, "/style.css", "text/css");
     });
-
-    server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request){
+    server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(LittleFS, "/script.js", "text/javascript");
     });
-
-    server.on("/chart.umd.js", HTTP_GET, [](AsyncWebServerRequest *request){
+    server.on("/chart.umd.js", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(LittleFS, "/chart.umd.js", "text/javascript");
     });
 
-    events.onConnect([](AsyncEventSourceClient *client){
+    events.onConnect([](AsyncEventSourceClient *client) {
         Serial.println("Novo cliente conectado na interface web!");
     });
     server.addHandler(&events);
-    
     server.begin();
 
-    //Inicialização do display OLED
-    pinMode(OLED_RESET, OUTPUT); 
+    // ------------------------------ OLED -----------------------------
+    pinMode(OLED_RESET, OUTPUT);
     digitalWrite(OLED_RESET, LOW);
     delay(50);
     digitalWrite(OLED_RESET, HIGH);
     delay(50);
-    display.init ();
-    display.setFont (ArialMT_Plain_10);
-    display.setTextAlignment (TEXT_ALIGN_LEFT);
+
     if (!display.init()) {
-        Serial.println("Display indisponível!");
-    }
-    else {
-        display.drawString (0, 0, "Display OLED - OK");
+        Serial.println("Display indisponivel!");
+    } else {
+        display.setFont(ArialMT_Plain_10);
+        display.setTextAlignment(TEXT_ALIGN_LEFT);
+        display.drawString(0, 0, "Display OLED - OK");
+        display.display();
         Serial.println("Display OLED - OK!");
-        display.display ();
         delay(1000);
     }
 
-    //Inicialização do sensor BME280 
-    I2CBME.begin(I2C_SDA, I2C_SCL, 100000); // se definindo portas I2C
-    bool status; 
-    //status = bme.begin(0x76); 
-    status = bme.begin(0x76, &I2CBME);      // se definindo portas I2C
-    if (!status) {
-        Serial.println("Sensor BME280 -Não OK");
-        display.drawString (0, 16, "Sensor BME280 - Não OK");
-        display.display ();
-        delay(1000);
-        while (1); //Se BME não disponível, não fuciona!
-    }
-    else {
+    // ----------------------------- BME280 ----------------------------
+    I2CBME.begin(I2C_SDA, I2C_SCL, 100000);
+    sensorOk = bme.begin(0x76, &I2CBME);
+    if (!sensorOk) {
+        Serial.println("Sensor BME280 - NAO OK (seguindo com valores 0)");
+        display.drawString(0, 16, "BME280 - Nao OK");
+    } else {
         Serial.println("Sensor BME280 - OK");
-        display.drawString (0, 16, "Sensor BME280 - OK");
-        display.display ();
-        delay(1000);
+        display.drawString(0, 16, "Sensor BME280 - OK");
     }
-    //==========================================================================
+    display.display();
+    delay(1000);
 
-    bool enviado = bot.sendMessage(
-        MY_ID,
-        "Lora conectado ao Telegram!",
-        ""
-    );
-
-    if (enviado)
-    {
+    // ---------------------------- Telegram ---------------------------
+    if (bot.sendMessage(MY_ID, "Lora conectado ao Telegram!", "")) {
         Serial.println("Mensagem enviada com sucesso!");
-    }
-    else
-    {
+    } else {
         Serial.println("Erro ao enviar mensagem.");
     }
 }
 
+// =====================================================================
+//  LOOP
+// =====================================================================
 void loop() {
     unsigned long tempoAtual = millis();
-    DadosBME valor_sensor = readSensorBME();
+    bool sheetsPronto = GSheet.ready();
 
-    if (tempoAtual - tempoAnteriorSSE >= 1000) {
+    // ---------------------- SSE para a página web --------------------
+    if (tempoAtual - tempoAnteriorSSE >= INTERVALO_SSE) {
         tempoAnteriorSSE = tempoAtual;
 
+        DadosBME d = readSensorBME();
+
         JsonDocument doc;
-        doc["temp"] = valor_sensor.temperatura;
-        doc["pres"] = valor_sensor.pressao;
-        doc["alti"] = valor_sensor.altitude;
-        doc["humi"] = valor_sensor.umidade;
+        doc["temp"] = d.temperatura;
+        doc["pres"] = d.pressao;
+        doc["alti"] = d.altitude;
+        doc["humi"] = d.umidade;
+
         String jsonString;
         serializeJson(doc, jsonString);
         events.send(jsonString.c_str(), "nova_leitura", millis());
     }
 
-    if (tempoAtual - tempoAnteriorSheets >= 10000) {
+    // -------------------------- Google Sheets ------------------------
+    if (sheetsPronto && (tempoAtual - tempoAnteriorSheets >= INTERVALO_SHEETS)) {
         tempoAnteriorSheets = tempoAtual;
 
-        if (GSheet.ready()) {
-            FirebaseJson response;
-            FirebaseJson value;
-            value.set("values/[0]/[0]", valor_sensor.temperatura);
-            value.set("values/[0]/[1]", valor_sensor.umidade);
-            value.set("values/[0]/[2]", valor_sensor.pressao);
-            value.set("values/[0]/[3]", valor_sensor.altitude);
-            value.add("majorDimension", "ROWS");
+        DadosBME d = readSensorBME();
 
+        if (salvarNoSheets(d)) {
+            contadorLeituras++;
+            Serial.printf("Total de leituras salvas: %d\n", contadorLeituras);
 
-            if (GSheet.values.append(&response, SPREADSHEET_ID, "Página1!A:D", &value)) {
-                Serial.println("Dado salvo com sucesso no Google Sheets!");
-                contadorLeituras++;
-                Serial.print("Total de leituras salvas: ");
-                Serial.println(contadorLeituras);
-
-                if (contadorLeituras >= 25) {
-                    enviarEmailAlerta();
-                    contadorLeituras = 0;
-                }
-            } else {
-                Serial.print("Erro ao salvar no Sheets: ");
-                Serial.println(GSheet.errorReason());
+            if (contadorLeituras >= LEITURAS_PARA_EMAIL) {
+                enviarEmailAlerta();
+                contadorLeituras = 0;
             }
         }
     }
-    googleSheetsLoop();
-     googleSheetsSendData(
-            temperatura,
-            umidade,
-            pressao,
-            altitude
-        );
 
-    if (tempoAtual - tempoAnteriorTelegram >= 1500) {
-    
+    // ---------------------------- Telegram ---------------------------
+    if (tempoAtual - tempoAnteriorTelegram >= INTERVALO_TELEGRAM) {
+        tempoAnteriorTelegram = tempoAtual;
+
         int numMensagens = bot.getUpdates(bot.last_message_received + 1);
-        while (numMensagens) {
+        int voltas = 0;
+        while (numMensagens && voltas++ < 5) {
             VerificaMsgTele(numMensagens);
             numMensagens = bot.getUpdates(bot.last_message_received + 1);
         }
-         tempoAnteriorTelegram = tempoAtual;
     }
 }
 
+// =====================================================================
+//  SENSOR
+// =====================================================================
 DadosBME readSensorBME() {
-    DadosBME leitura;
+    DadosBME leitura = {0, 0, 0, 0};
+    if (!sensorOk) return leitura;
+
     leitura.temperatura = bme.readTemperature();
-    leitura.pressao = bme.readPressure() / 100.0F;
-    leitura.altitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
-    leitura.umidade = bme.readHumidity();
+    leitura.pressao     = bme.readPressure() / 100.0F;
+    leitura.altitude    = bme.readAltitude(SEALEVELPRESSURE_HPA);
+    leitura.umidade     = bme.readHumidity();
     return leitura;
 }
 
-void enviarEmailAlerta() {
-    const char* smtp_host = "smtp.gmail.com";
-    const int smtp_port = 465;
- 
-    const char* email_remetente = "seu_email@gmail.com";
-    const char* senha_app = "Senha_API";
-    const char* email_destinatario = "email_destino@gmail.com";
- 
+// =====================================================================
+//  GOOGLE SHEETS
+// =====================================================================
+bool salvarNoSheets(const DadosBME &d) {
+    FirebaseJson response;
+    FirebaseJson value;
+
+    value.set("majorDimension", "ROWS");
+    value.set("values/[0]/[0]", horaFormatada());
+    value.set("values/[0]/[1]", d.temperatura);
+    value.set("values/[0]/[2]", d.umidade);
+    value.set("values/[0]/[3]", d.pressao);
+    value.set("values/[0]/[4]", d.altitude);
+
+    if (GSheet.values.append(&response, SPREADSHEET_ID, SHEET_RANGE, &value)) {
+        Serial.println("Dado salvo com sucesso no Google Sheets!");
+        return true;
+    }
+
+    Serial.printf("Erro ao salvar no Sheets: %s\n", GSheet.errorReason().c_str());
+    return false;
+}
+
+// =====================================================================
+//  E-MAIL
+// =====================================================================
+bool enviarEmailAlerta() {
     auto statusCallback = [](SMTPStatus status) {
         Serial.println(status.text);
     };
- 
-    smtp.connect(smtp_host, smtp_port, statusCallback);
- 
+
+    smtp.connect(SMTP_HOST, SMTP_PORT, statusCallback);
     if (!smtp.isConnected()) {
         Serial.println("Falha ao conectar no servidor SMTP.");
-        return;
+        return false;
     }
- 
-    smtp.authenticate(email_remetente, senha_app, readymail_auth_password);
- 
+
+    smtp.authenticate(EMAIL_REMETENTE, EMAIL_SENHA_APP, readymail_auth_password);
     if (!smtp.isAuthenticated()) {
-        Serial.println("Falha na autenticação SMTP (verifique a senha de app).");
-        return;
+        Serial.println("Falha na autenticacao SMTP (verifique a senha de app).");
+        return false;
     }
- 
+
     SMTPMessage msg;
-    msg.headers.add(rfc822_from, String("ESP32 <") + email_remetente + ">");
-    msg.headers.add(rfc822_to, email_destinatario);
+    msg.headers.add(rfc822_from, String("ESP32 <") + EMAIL_REMETENTE + ">");
+    msg.headers.add(rfc822_to, EMAIL_DESTINO);
     msg.headers.add(rfc822_subject, "Alerta: 25 Leituras Concluidas!");
-    msg.text.body("O ESP32 acabou de registrar e salvar 25 novas leituras no Google Sheets.");
- 
+    msg.text.body(String("O ESP32 acabou de registrar e salvar ") +
+                  LEITURAS_PARA_EMAIL +
+                  " novas leituras no Google Sheets.\r\n" +
+                  "Hora: " + horaFormatada() + "\r\n");
     msg.timestamp = time(nullptr);
- 
+
     Serial.println("Enviando e-mail de alerta...");
-    smtp.send(msg);
+    bool ok = smtp.send(msg);
+    Serial.println(ok ? "E-mail enviado." : "Falha no envio do e-mail.");
+    return ok;
 }
 
+// =====================================================================
+//  TELEGRAM
+// =====================================================================
+bool isAuthorized(const String &chat_id) {
+    for (int i = 0; i < numUserAutorizado; i++) {
+        if (chat_id == validoChatIds[i]) return true;
+    }
+    return false;
+}
 
 void VerificaMsgTele(int numMensagens) {
     for (int i = 0; i < numMensagens; i++) {
         String chat_id = bot.messages[i].chat_id;
-        
+
         if (!isAuthorized(chat_id)) {
-            bot.sendMessage(chat_id, "Usuário não autorizado", "");
+            bot.sendMessage(chat_id, "Usuario nao autorizado", "");
             continue;
         }
 
         String texto = bot.messages[i].text;
 
         if (texto == "/status") {
-            DadosBME valor_sensor = readSensorBME();
-            String resposta = String("📊 *Status Atual do ESP32*\n\n");
-            resposta += "🌡️ Temperatura: " + String(valor_sensor.temperatura) + " °C\n";
-            resposta += "💧 Umidade: " + String(valor_sensor.umidade) + " %\n";
-            resposta += "🌍 Pressão: " + String(valor_sensor.pressao) + " hPa\n";
-            resposta += "⛰️ Altitude: " + String(valor_sensor.altitude) + " m";
+            DadosBME d = readSensorBME();
+            String resposta = "📊 *Status Atual do ESP32*\n\n";
+            resposta += "🌡️ Temperatura: " + String(d.temperatura, 2) + " °C\n";
+            resposta += "💧 Umidade: "     + String(d.umidade, 2)     + " %\n";
+            resposta += "🌍 Pressão: "     + String(d.pressao, 2)     + " hPa\n";
+            resposta += "⛰️ Altitude: "    + String(d.altitude, 2)    + " m";
+            if (!sensorOk) resposta += "\n\n⚠️ BME280 nao detectado.";
             bot.sendMessage(chat_id, resposta, "Markdown");
         }
         else if (texto == "/led_on") {
             digitalWrite(LEDPIN, HIGH);
             bot.sendMessage(chat_id, "💡 LED interno ligado com sucesso!", "");
-        } 
+        }
         else if (texto == "/led_off") {
             digitalWrite(LEDPIN, LOW);
             bot.sendMessage(chat_id, "🌙 LED interno desligado com sucesso!", "");
-        } 
+        }
+        else if (texto == "/email") {
+            bot.sendMessage(chat_id, "Enviando e-mail de teste...", "");
+            bool ok = enviarEmailAlerta();
+            bot.sendMessage(chat_id, ok ? "E-mail enviado." : "Falha no envio.", "");
+        }
         else {
             String ajuda = "Comando desconhecido. Use:\n";
-            ajuda += "/status - Vê os dados do sensor\n";
-            ajuda += "/led_on - Liga o LED\n";
-            ajuda += "/led_off - Desliga o LED";
+            ajuda += "/status  - Ve os dados do sensor\n";
+            ajuda += "/led_on  - Liga o LED\n";
+            ajuda += "/led_off - Desliga o LED\n";
+            ajuda += "/email   - Dispara o e-mail de teste";
             bot.sendMessage(chat_id, ajuda, "");
         }
     }
 }
 
+String horaFormatada() {
+    time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+    char buf[32];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &t);
+    return String(buf);
+}
 
 void tokenStatusCallback(TokenInfo info) {
     if (info.status == token_status_error) {
