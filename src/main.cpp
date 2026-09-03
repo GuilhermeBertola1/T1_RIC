@@ -79,7 +79,8 @@ SSD1306 display(OLED_I2C_ADDR, OLED_SDA, OLED_SCL);
 const unsigned long INTERVALO_SSE      = 1000UL;
 const unsigned long INTERVALO_SHEETS   = 10000UL;
 const unsigned long INTERVALO_TELEGRAM = 1500UL;
-const int LEITURAS_PARA_EMAIL          = 25;
+const unsigned long DEBOUNCE_MS        = 50UL;
+const int LEITURAS_POR_RELATORIO       = 25;
 
 // =====================================================================
 //  OBJETOS GLOBAIS
@@ -101,15 +102,55 @@ struct DadosBME {
     float umidade;
 };
 
+struct Estatistica {
+    uint32_t n     = 0;
+    double   media = 0.0;
+    double   m2    = 0.0;
+    double   minimo = 0.0;
+    double   maximo = 0.0;
+
+    void adicionar(double x) {
+        if (n == 0) {
+            minimo = maximo = x;
+        } else {
+            if (x < minimo) minimo = x;
+            if (x > maximo) maximo = x;
+        }
+        n++;
+        double delta = x - media;
+        media += delta / (double)n;
+        m2    += delta * (x - media);
+    }
+    double desvioPadrao() const {
+        return (n < 2) ? 0.0 : sqrt(m2 / (double)(n - 1));
+    }
+    void reiniciar() {
+        n = 0; media = 0.0; m2 = 0.0; minimo = 0.0; maximo = 0.0;
+    }
+};
+
+Estatistica estatTemp, estatUmid, estatPres, estatAlt;
+String horaInicioJanela = "";
+
+bool ledEstado = false; 
+bool botaoEstado = false;
+int  botaoLeituraAnterior = HIGH;
+unsigned long tempoUltimaMudanca = 0;
+uint16_t botaoContagemPressoes = 0;
+
 unsigned long tempoAnteriorSSE      = 0;
 unsigned long tempoAnteriorSheets   = 0;
 unsigned long tempoAnteriorTelegram = 0;
-int  contadorLeituras = 0;
 bool sensorOk = false;
 
 DadosBME readSensorBME();
+void     atualizarBotao();
+void     setLed(bool ligado);
 bool     salvarNoSheets(const DadosBME &d);
-bool     enviarEmailAlerta();
+void     acumularEstatisticas(const DadosBME &d);
+bool     enviarRelatorioEstatistico();
+String   linhaRelatorioTexto(const char *nome, const char *un, const Estatistica &e);
+String   linhaRelatorioHtml(const char *nome, const char *un, const Estatistica &e);
 void     VerificaMsgTele(int numMensagens);
 bool     isAuthorized(const String &chat_id);
 String   horaFormatada();
@@ -125,6 +166,9 @@ void setup() {
 
     pinMode(LEDPIN, OUTPUT);
     digitalWrite(LEDPIN, LOW);
+
+    pinMode(BUTTON, INPUT_PULLUP);
+    botaoLeituraAnterior = digitalRead(BUTTON);
 
     // ---------------------------- LittleFS ---------------------------
     if (!LittleFS.begin(true)) {
@@ -227,6 +271,7 @@ void setup() {
 void loop() {
     unsigned long tempoAtual = millis();
     bool sheetsPronto = GSheet.ready();
+    atualizarBotao();
 
     // ---------------------- SSE para a página web --------------------
     if (tempoAtual - tempoAnteriorSSE >= INTERVALO_SSE) {
@@ -239,6 +284,8 @@ void loop() {
         doc["pres"] = d.pressao;
         doc["alti"] = d.altitude;
         doc["humi"] = d.umidade;
+        doc["botao"] = botaoEstado;
+        doc["led"] = ledEstado;
 
         String jsonString;
         serializeJson(doc, jsonString);
@@ -252,12 +299,19 @@ void loop() {
         DadosBME d = readSensorBME();
 
         if (salvarNoSheets(d)) {
-            contadorLeituras++;
-            Serial.printf("Total de leituras salvas: %d\n", contadorLeituras);
+            acumularEstatisticas(d);
+            Serial.printf("Leituras na janela: %u/%d\n",
+                          estatTemp.n, LEITURAS_POR_RELATORIO);
 
-            if (contadorLeituras >= LEITURAS_PARA_EMAIL) {
-                enviarEmailAlerta();
-                contadorLeituras = 0;
+            if ((int)estatTemp.n >= LEITURAS_POR_RELATORIO) {
+                enviarRelatorioEstatistico();
+
+                estatTemp.reiniciar();
+                estatUmid.reiniciar();
+                estatPres.reiniciar();
+                estatAlt.reiniciar();
+                botaoContagemPressoes = 0;
+                horaInicioJanela = "";
             }
         }
     }
@@ -290,6 +344,31 @@ DadosBME readSensorBME() {
 }
 
 // =====================================================================
+//  BOTÃO E LED
+// =====================================================================
+void atualizarBotao() {
+    int leitura = digitalRead(BUTTON);
+
+    if (leitura != botaoLeituraAnterior) {
+        tempoUltimaMudanca = millis();
+        botaoLeituraAnterior = leitura;
+    }
+
+    if (millis() - tempoUltimaMudanca >= DEBOUNCE_MS) {
+        bool novoEstado = (leitura == LOW);
+        if (novoEstado != botaoEstado) {
+            botaoEstado = novoEstado;
+            if (botaoEstado) botaoContagemPressoes++;
+        }
+    }
+}
+
+void setLed(bool ligado) {
+    ledEstado = ligado;
+    digitalWrite(LEDPIN, ligado ? HIGH : LOW);
+}
+
+// =====================================================================
 //  GOOGLE SHEETS
 // =====================================================================
 bool salvarNoSheets(const DadosBME &d) {
@@ -302,6 +381,9 @@ bool salvarNoSheets(const DadosBME &d) {
     value.set("values/[0]/[2]", d.umidade);
     value.set("values/[0]/[3]", d.pressao);
     value.set("values/[0]/[4]", d.altitude);
+    value.set("values/[0]/[5]", botaoEstado ? "PRESSIONADO" : "SOLTO");
+    value.set("values/[0]/[6]", ledEstado   ? "LIGADO"      : "DESLIGADO");
+
 
     if (GSheet.values.append(&response, SPREADSHEET_ID, SHEET_RANGE, &value)) {
         Serial.println("Dado salvo com sucesso no Google Sheets!");
@@ -313,9 +395,89 @@ bool salvarNoSheets(const DadosBME &d) {
 }
 
 // =====================================================================
+//  ESTATÍSTICA
+// =====================================================================
+
+void acumularEstatisticas(const DadosBME &d) {
+    if (estatTemp.n == 0) horaInicioJanela = horaFormatada();
+
+    estatTemp.adicionar(d.temperatura);
+    estatUmid.adicionar(d.umidade);
+    estatPres.adicionar(d.pressao);
+    estatAlt.adicionar(d.altitude);
+}
+
+String linhaRelatorioTexto(const char *nome, const char *un, const Estatistica &e) {
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+             "%-13s media %8.2f  dp %6.2f  min %8.2f  max %8.2f  %s\r\n",
+             nome, e.media, e.desvioPadrao(), e.minimo, e.maximo, un);
+    return String(buf);
+}
+
+String linhaRelatorioHtml(const char *nome, const char *un, const Estatistica &e) {
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+             "<tr><td>%s (%s)</td><td align=\"right\">%.2f</td>"
+             "<td align=\"right\">%.2f</td><td align=\"right\">%.2f</td>"
+             "<td align=\"right\">%.2f</td></tr>",
+             nome, un, e.media, e.desvioPadrao(), e.minimo, e.maximo);
+    return String(buf);
+}
+
+// =====================================================================
 //  E-MAIL
 // =====================================================================
-bool enviarEmailAlerta() {
+bool enviarRelatorioEstatistico() {
+    if (estatTemp.n == 0) {
+        Serial.println("Sem leituras na janela; relatorio nao enviado.");
+        return false;
+    }
+
+    const uint32_t n       = estatTemp.n;
+    const String   agora   = horaFormatada();
+    const String   inicio  = horaInicioJanela.length() ? horaInicioJanela : agora;
+
+    // ------------------------- corpo texto ---------------------------
+    String texto;
+    texto  = "Relatorio automatico da estacao ESP32\r\n";
+    texto += "=====================================\r\n\r\n";
+    texto += "Amostras: " + String(n) + "\r\n";
+    texto += "Periodo:  " + inicio + "  ate  " + agora + "\r\n\r\n";
+    texto += "Grandeza         Media       DP       Min        Max\r\n";
+    texto += "-----------------------------------------------------------\r\n";
+    texto += linhaRelatorioTexto("Temperatura", "C",   estatTemp);
+    texto += linhaRelatorioTexto("Umidade",     "%",   estatUmid);
+    texto += linhaRelatorioTexto("Pressao",     "hPa", estatPres);
+    texto += linhaRelatorioTexto("Altitude",    "m",   estatAlt);
+    texto += "\r\n";
+    texto += "Botao: " + String(botaoEstado ? "PRESSIONADO" : "SOLTO");
+    texto += "  (" + String(botaoContagemPressoes) + " toque(s) no periodo)\r\n";
+    texto += "LED:   " + String(ledEstado ? "LIGADO" : "DESLIGADO") + "\r\n";
+    if (!sensorOk) texto += "\r\nAVISO: BME280 nao detectado. Valores zerados.\r\n";
+
+    // ------------------------- corpo HTML ----------------------------
+    String html;
+    html  = "<html><body style=\"font-family:Arial,sans-serif;color:#222\">";
+    html += "<h2>Relatorio automatico da estacao ESP32</h2>";
+    html += "<p><b>Amostras:</b> " + String(n) + "<br>";
+    html += "<b>Periodo:</b> " + inicio + " &rarr; " + agora + "</p>";
+    html += "<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" "
+            "style=\"border-collapse:collapse\">";
+    html += "<tr style=\"background:#f0f0f0\"><th>Grandeza</th><th>Media</th>"
+            "<th>Desvio padrao</th><th>Minimo</th><th>Maximo</th></tr>";
+    html += linhaRelatorioHtml("Temperatura", "C",   estatTemp);
+    html += linhaRelatorioHtml("Umidade",     "%",   estatUmid);
+    html += linhaRelatorioHtml("Pressao",     "hPa", estatPres);
+    html += linhaRelatorioHtml("Altitude",    "m",   estatAlt);
+    html += "</table>";
+    html += "<p><b>Botao:</b> " + String(botaoEstado ? "PRESSIONADO" : "SOLTO") +
+            " (" + String(botaoContagemPressoes) + " toque(s) no periodo)<br>";
+    html += "<b>LED:</b> " + String(ledEstado ? "LIGADO" : "DESLIGADO") + "</p>";
+    if (!sensorOk) html += "<p style=\"color:#b00\">AVISO: BME280 nao detectado.</p>";
+    html += "</body></html>";
+
+    // --------------------------- envio -------------------------------
     auto statusCallback = [](SMTPStatus status) {
         Serial.println(status.text);
     };
@@ -335,16 +497,15 @@ bool enviarEmailAlerta() {
     SMTPMessage msg;
     msg.headers.add(rfc822_from, String("ESP32 <") + EMAIL_REMETENTE + ">");
     msg.headers.add(rfc822_to, EMAIL_DESTINO);
-    msg.headers.add(rfc822_subject, "Alerta: 25 Leituras Concluidas!");
-    msg.text.body(String("O ESP32 acabou de registrar e salvar ") +
-                  LEITURAS_PARA_EMAIL +
-                  " novas leituras no Google Sheets.\r\n" +
-                  "Hora: " + horaFormatada() + "\r\n");
+    msg.headers.add(rfc822_subject,
+                    String("Relatorio de ") + n + " leituras - " + agora);
+    msg.text.body(texto);
+    msg.html.body(html);
     msg.timestamp = time(nullptr);
 
-    Serial.println("Enviando e-mail de alerta...");
+    Serial.println("Enviando relatorio por e-mail...");
     bool ok = smtp.send(msg);
-    Serial.println(ok ? "E-mail enviado." : "Falha no envio do e-mail.");
+    Serial.println(ok ? "Relatorio enviado." : "Falha no envio do relatorio.");
     return ok;
 }
 
@@ -375,29 +536,47 @@ void VerificaMsgTele(int numMensagens) {
             resposta += "🌡️ Temperatura: " + String(d.temperatura, 2) + " °C\n";
             resposta += "💧 Umidade: "     + String(d.umidade, 2)     + " %\n";
             resposta += "🌍 Pressão: "     + String(d.pressao, 2)     + " hPa\n";
-            resposta += "⛰️ Altitude: "    + String(d.altitude, 2)    + " m";
+            resposta += "⛰️ Altitude: "    + String(d.altitude, 2)    + " m\n\n";
+            resposta += "🔘 Botão: " + String(botaoEstado ? "PRESSIONADO" : "SOLTO") + "\n";
+            resposta += "💡 LED: "   + String(ledEstado   ? "LIGADO"      : "DESLIGADO");
             if (!sensorOk) resposta += "\n\n⚠️ BME280 nao detectado.";
             bot.sendMessage(chat_id, resposta, "Markdown");
         }
+        else if (texto == "/stats") {
+            String r = "📈 *Janela atual*\n\n";
+            r += "Amostras: " + String(estatTemp.n) + "/" +
+                 String(LEITURAS_POR_RELATORIO) + "\n\n";
+            r += "🌡️ " + String(estatTemp.media, 2) + " ± " +
+                 String(estatTemp.desvioPadrao(), 2) + " °C\n";
+            r += "💧 " + String(estatUmid.media, 2) + " ± " +
+                 String(estatUmid.desvioPadrao(), 2) + " %\n";
+            r += "🌍 " + String(estatPres.media, 2) + " ± " +
+                 String(estatPres.desvioPadrao(), 2) + " hPa\n";
+            r += "⛰️ " + String(estatAlt.media, 2) + " ± " +
+                 String(estatAlt.desvioPadrao(), 2) + " m\n\n";
+            r += "🔘 " + String(botaoContagemPressoes) + " toque(s) na janela";
+            bot.sendMessage(chat_id, r, "Markdown");
+        }
         else if (texto == "/led_on") {
-            digitalWrite(LEDPIN, HIGH);
+            setLed(true);
             bot.sendMessage(chat_id, "💡 LED interno ligado com sucesso!", "");
         }
         else if (texto == "/led_off") {
-            digitalWrite(LEDPIN, LOW);
+            setLed(false);
             bot.sendMessage(chat_id, "🌙 LED interno desligado com sucesso!", "");
         }
-        else if (texto == "/email") {
-            bot.sendMessage(chat_id, "Enviando e-mail de teste...", "");
-            bool ok = enviarEmailAlerta();
-            bot.sendMessage(chat_id, ok ? "E-mail enviado." : "Falha no envio.", "");
+        else if (texto == "/relatorio") {
+            bot.sendMessage(chat_id, "Enviando relatorio por e-mail...", "");
+            bool ok = enviarRelatorioEstatistico();
+            bot.sendMessage(chat_id, ok ? "Relatorio enviado." : "Falha no envio.", "");
         }
         else {
             String ajuda = "Comando desconhecido. Use:\n";
-            ajuda += "/status  - Ve os dados do sensor\n";
-            ajuda += "/led_on  - Liga o LED\n";
-            ajuda += "/led_off - Desliga o LED\n";
-            ajuda += "/email   - Dispara o e-mail de teste";
+            ajuda += "/status    - Leitura instantanea + botao e LED\n";
+            ajuda += "/stats     - Media e desvio da janela atual\n";
+            ajuda += "/led_on    - Liga o LED\n";
+            ajuda += "/led_off   - Desliga o LED\n";
+            ajuda += "/relatorio - Envia o relatorio por e-mail agora";
             bot.sendMessage(chat_id, ajuda, "");
         }
     }
