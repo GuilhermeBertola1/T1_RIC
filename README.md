@@ -8,7 +8,7 @@ Estação de telemetria ambiental construída sobre um ESP32. O dispositivo lê 
 | **Servidor web + gráfico** | Visualização em tempo real na rede local | ~1 s |
 | **Google Sheets** | Histórico persistente, auditável e exportável | ~10 s |
 | **Telegram** | Consulta e comando remotos, de fora da rede | sob demanda |
-| **E-mail (SMTP)** | Notificação passiva de marco atingido | a cada 25 registros |
+| **E-mail (SMTP)** | Relatório estatístico consolidado (média, desvio padrão, mín, máx) | a cada 25 registros |
 
 A ideia central do projeto é que um dado de sensor tem valores diferentes dependendo de *quando* e *onde* alguém precisa dele. Um gráfico ao vivo não substitui um histórico; um histórico não avisa ninguém sozinho; e nenhum dos dois funciona quando você está longe da rede local. Daí a arquitetura de múltiplos canais em paralelo.
 
@@ -25,9 +25,10 @@ A ideia central do projeto é que um dado de sensor tem valores diferentes depen
   - [O modelo de execução: por que não existe `delay()` no loop](#o-modelo-de-execução-por-que-não-existe-delay-no-loop)
   - [`setup()` — ordem de inicialização e por que ela importa](#setup--ordem-de-inicialização-e-por-que-ela-importa)
   - [`readSensorBME()` — leitura e desacoplamento do hardware](#readsensorbme--leitura-e-desacoplamento-do-hardware)
+  - [Botão e LED — `atualizarBotao()` e `setLed()`](#botão-e-led--atualizarbotao-e-setled)
   - [Canal 1 — Servidor web com Server-Sent Events](#canal-1--servidor-web-com-server-sent-events)
   - [Canal 2 — `salvarNoSheets()` e a autenticação OAuth 2.0](#canal-2--salvarnosheets-e-a-autenticação-oauth-20)
-  - [Canal 3 — `enviarEmailAlerta()` via SMTP](#canal-3--enviaremailalerta-via-smtp)
+  - [Canal 3 — Estatística e relatório por e-mail](#canal-3--estatística-e-relatório-por-e-mail)
   - [Canal 4 — `VerificaMsgTele()` e o long polling do Telegram](#canal-4--verificamsgtele-e-o-long-polling-do-telegram)
   - [Funções de apoio](#funções-de-apoio)
 - [Consumo de memória e limitações conhecidas](#consumo-de-memória-e-limitações-conhecidas)
@@ -43,7 +44,7 @@ A ideia central do projeto é que um dado de sensor tem valores diferentes depen
 | Sensor | BME280 (temperatura, umidade relativa, pressão) — I²C, endereço `0x76` |
 | Display | SSD1306 128×64 OLED, integrado à placa |
 | LED | GPIO 25 (integrado) |
-| Botão | GPIO 0 (PRG/BOOT) |
+| Botão | GPIO 0 (PRG/BOOT), pull-up interno — pressionado = nível baixo |
 
 ### Barramentos I²C
 
@@ -71,21 +72,23 @@ Isso evita disputa de barramento entre display e sensor, e permite clock indepen
 ```mermaid
 flowchart LR
     BME[BME280<br/>I2C bus 1] --> ESP
+    BTN[Botao GPIO 0<br/>debounce 50 ms] --> ESP
+    LED[LED GPIO 25<br/>estado espelhado] --> ESP
 
     subgraph ESP[ESP32 · loop cooperativo por millis]
         direction TB
         T1[Timer 1 s]
         T2[Timer 10 s]
         T3[Timer 1,5 s]
-        CNT[contador ≥ 25]
+        ACC[Acumulador Welford<br/>media · desvio · min · max]
     end
 
     ESP --> OLED[Display OLED<br/>status local]
     T1  --> SSE[AsyncEventSource<br/>SSE /eventos]
     SSE --> WEB[Navegador<br/>Chart.js]
-    T2  --> GS[Google Sheets API<br/>values.append]
-    T2  --> CNT
-    CNT --> MAIL[SMTP Gmail<br/>ReadyMail]
+    T2  --> GS[Google Sheets API<br/>values.append · colunas A:G]
+    T2  --> ACC
+    ACC -- "n = 25" --> MAIL[SMTP Gmail · ReadyMail<br/>relatorio estatistico]
     T3  --> TG[Telegram Bot API<br/>getUpdates]
     TG  --> ESP
 ```
@@ -328,6 +331,63 @@ h = 44330 × [1 − (P / P₀)^0,1903]
 
 ---
 
+### Botão e LED — `atualizarBotao()` e `setLed()`
+
+Além das quatro grandezas do sensor, o registro guarda o estado de duas entidades digitais: o **botão PRG/BOOT** (entrada) e o **LED interno** (saída). Elas fecham o ciclo do projeto: o Telegram atua sobre o LED, e a planilha comprova que a atuação aconteceu.
+
+#### Leitura do botão com debounce
+
+```cpp
+void atualizarBotao() {
+    int leitura = digitalRead(BUTTON);
+
+    if (leitura != botaoLeituraAnterior) {
+        tempoUltimaMudanca = millis();
+        botaoLeituraAnterior = leitura;
+    }
+
+    if (millis() - tempoUltimaMudanca >= DEBOUNCE_MS) {
+        bool novoEstado = (leitura == LOW);       // pull-up: LOW = apertado
+        if (novoEstado != botaoEstado) {
+            botaoEstado = novoEstado;
+            if (botaoEstado) botaoContagemPressoes++;   // borda de descida
+        }
+    }
+}
+```
+
+**Lógica invertida.** O pino é configurado como `INPUT_PULLUP`: em repouso o resistor interno mantém o nível alto, e o botão fecha o circuito para o terra. Portanto **pressionado = `LOW`**, e a conversão para um booleano legível (`botaoEstado`, `true` = pressionado) acontece uma única vez, aqui.
+
+**Por que debounce.** O contato mecânico de qualquer botão repica: ao fechar, ele abre e fecha dezenas de vezes em poucos milissegundos. Um `digitalRead()` cru contaria cada repique como um toque distinto. A técnica usada é **filtro temporal**: qualquer mudança de leitura reinicia um cronômetro, e a leitura só é aceita como estado real depois de permanecer estável por `DEBOUNCE_MS` (50 ms). É um valor bem acima do tempo de repique típico (1–10 ms) e bem abaixo do menor toque humano (~100 ms), então não perde toque nem conta ruído.
+
+**Por que é chamada a cada volta do `loop()`**, e não dentro de um temporizador. Um toque dura poucas centenas de milissegundos. Se o botão fosse amostrado só no temporizador de 10 s, a chance de a leitura coincidir com o toque seria de alguns por cento — praticamente todos os toques passariam despercebidos. Amostrando em cada iteração (o `loop()` roda milhares de vezes por segundo), nenhum toque escapa.
+
+**Duas informações, não uma.** A distinção importa:
+
+| Variável | Significado | Onde aparece |
+|---|---|---|
+| `botaoEstado` | Estado **instantâneo** no momento da amostragem | Coluna F da planilha, SSE, `/status` |
+| `botaoContagemPressoes` | Quantos toques ocorreram **desde o último relatório** | Corpo do e-mail, `/stats` |
+
+A coluna F responde literalmente "está apertado agora?", que é o que uma linha de log deve registrar. Mas como a gravação acontece a cada 10 s e um toque dura menos de meio segundo, a coluna F vai marcar `SOLTO` quase sempre — a probabilidade de o instante da escrita coincidir com o toque é baixa. Por isso existe o contador: ele detecta a **borda de descida** (transição solto → pressionado) e acumula, garantindo que nenhuma interação se perca entre uma gravação e outra. O e-mail reporta os dois.
+
+> **Atenção:** manter o GPIO 0 em nível baixo durante o reset coloca o ESP32 em modo de gravação de firmware. Se a placa "não inicializar" com o botão pressionado, não é bug do código — é o bootloader fazendo o que deve.
+
+#### Estado do LED
+
+```cpp
+void setLed(bool ligado) {
+    ledEstado = ligado;
+    digitalWrite(LEDPIN, ligado ? HIGH : LOW);
+}
+```
+
+O ESP32 permite `digitalRead()` num pino configurado como saída, mas o firmware mantém uma variável espelho e centraliza toda escrita nesta função. Dois motivos: o valor fica disponível sem custo de acesso ao hardware nos quatro canais que o consomem, e é impossível alguém alterar o pino sem atualizar o estado — a inconsistência clássica de `digitalWrite()` espalhado pelo código simplesmente não pode acontecer.
+
+Todos os pontos que mexem no LED (`/led_on`, `/led_off`, a inicialização no `setup()`) passam por `setLed()`.
+
+---
+
 ### Canal 1 — Servidor web com Server-Sent Events
 
 #### Por que SSE e não polling
@@ -366,10 +426,12 @@ server.addHandler(&events);
 
 ```cpp
 JsonDocument doc;
-doc["temp"] = d.temperatura;
-doc["pres"] = d.pressao;
-doc["alti"] = d.altitude;
-doc["humi"] = d.umidade;
+doc["temp"]  = d.temperatura;
+doc["pres"]  = d.pressao;
+doc["alti"]  = d.altitude;
+doc["humi"]  = d.umidade;
+doc["botao"] = botaoEstado;   // booleano: true = pressionado
+doc["led"]   = ledEstado;
 
 String jsonString;
 serializeJson(doc, jsonString);
@@ -430,6 +492,9 @@ bool salvarNoSheets(const DadosBME &d) {
     value.set("values/[0]/[2]", d.umidade);
     value.set("values/[0]/[3]", d.pressao);
     value.set("values/[0]/[4]", d.altitude);
+    // Colunas F e G. Para plotar no Sheets, troque os textos por 1/0.
+    value.set("values/[0]/[5]", botaoEstado ? "PRESSIONADO" : "SOLTO");
+    value.set("values/[0]/[6]", ledEstado   ? "LIGADO"      : "DESLIGADO");
 
     if (GSheet.values.append(&response, SPREADSHEET_ID, SHEET_RANGE, &value)) {
         Serial.println("Dado salvo com sucesso no Google Sheets!");
@@ -446,7 +511,9 @@ bool salvarNoSheets(const DadosBME &d) {
 ```json
 {
   "majorDimension": "ROWS",
-  "values": [ [ "2026-09-03 14:22:10", 24.31, 61.20, 1013.44, 612.85 ] ]
+  "values": [
+    [ "2026-09-03 14:22:10", 24.31, 61.20, 1013.44, 612.85, "SOLTO", "LIGADO" ]
+  ]
 }
 ```
 
@@ -454,42 +521,94 @@ bool salvarNoSheets(const DadosBME &d) {
 
 **`majorDimension: "ROWS"`** diz à API para interpretar cada vetor interno como uma linha horizontal. Com `"COLUMNS"`, os mesmos dados seriam gravados verticalmente.
 
-**`values.append` e o range `Dados!A:E`.** O método `append` da API procura a primeira linha vazia dentro do intervalo e escreve ali — o ESP32 não precisa rastrear em que linha parou, o que sobreviveria inclusive a um reset. O range é uma *dica de tabela*, não um destino fixo: `A:E` sem números de linha indica as colunas de interesse.
+**`values.append` e o range `Dados!A:G`.** O método `append` da API procura a primeira linha vazia dentro do intervalo e escreve ali — o ESP32 não precisa rastrear em que linha parou, o que sobreviveria inclusive a um reset. O range é uma *dica de tabela*, não um destino fixo: `A:G` sem números de linha indica as colunas de interesse.
 
 O nome da aba é `Dados`, sem acento, deliberadamente. O range vai codificado na URL da requisição, e caracteres não-ASCII como o `á` de `Página1` são uma fonte recorrente de falha de encoding.
 
 **Colunas gravadas:**
 
-| A | B | C | D | E |
-|---|---|---|---|---|
-| Timestamp | Temperatura (°C) | Umidade (%) | Pressão (hPa) | Altitude (m) |
+| A | B | C | D | E | F | G |
+|---|---|---|---|---|---|---|
+| Timestamp | Temperatura (°C) | Umidade (%) | Pressão (hPa) | Altitude (m) | Botão | LED |
+
+As colunas F e G são gravadas como texto (`PRESSIONADO`/`SOLTO`, `LIGADO`/`DESLIGADO`) para que a planilha seja legível sem legenda. Se você quiser plotá-las junto com as grandezas analógicas, troque por `1`/`0` nas duas linhas correspondentes — o Sheets não constrói série temporal a partir de texto.
 
 O timestamp é gerado **no dispositivo**, não pela planilha. Uma fórmula `NOW()` na planilha registraria o momento da escrita, que pode divergir do momento da leitura se houver retentativa de rede. Gravar a hora do ESP32 mantém o dado fiel ao instante da medição.
 
-**Retorno booleano.** O valor de retorno é o que alimenta o contador do canal de e-mail: só uma gravação confirmada incrementa `contadorLeituras`. Se a rede cair, o contador não avança e nenhum alerta falso é disparado.
+**Retorno booleano.** O valor de retorno é o que alimenta o acumulador estatístico: só uma gravação confirmada entra na amostra. Se a rede cair, a janela não avança, e o relatório continua descrevendo exatamente as 25 linhas que estão na planilha — o e-mail e a planilha nunca divergem.
 
 ---
 
-### Canal 3 — `enviarEmailAlerta()` via SMTP
+### Canal 3 — Estatística e relatório por e-mail
+
+O e-mail não é um aviso de "cheguei a 25 leituras". Ele é o **produto analítico** do projeto: a cada janela de 25 registros, o dispositivo consolida os dados brutos em média, desvio padrão, mínimo e máximo de cada grandeza, e envia o resumo. A planilha guarda o detalhe; o e-mail entrega a interpretação.
 
 #### O gatilho
 
 ```cpp
 if (salvarNoSheets(d)) {
-    contadorLeituras++;
-    if (contadorLeituras >= LEITURAS_PARA_EMAIL) {
-        enviarEmailAlerta();
-        contadorLeituras = 0;
+    acumularEstatisticas(d);
+
+    if ((int)estatTemp.n >= LEITURAS_POR_RELATORIO) {
+        enviarRelatorioEstatistico();
+        estatTemp.reiniciar();  estatUmid.reiniciar();
+        estatPres.reiniciar();  estatAlt.reiniciar();
+        botaoContagemPressoes = 0;
+        horaInicioJanela = "";
     }
 }
 ```
 
-O disparo é por **contagem de registros bem-sucedidos**, não por tempo. A diferença é relevante: com um gatilho temporal, o e-mail chegaria mesmo que a rede estivesse fora e nada tivesse sido gravado. Contando gravações confirmadas, a chegada do e-mail é em si a prova de que 25 registros entraram na planilha. Com o intervalo de 10 s, isso dá um e-mail a cada ~4 min 10 s.
+O disparo é por **contagem de registros bem-sucedidos**, não por tempo. A diferença é relevante: com um gatilho temporal, o e-mail chegaria mesmo que a rede estivesse fora e nada tivesse sido gravado, e as estatísticas descreveriam uma amostra que não existe na planilha. Contando gravações confirmadas, o relatório é sempre um resumo fiel das últimas 25 linhas gravadas. Com o intervalo de 10 s, isso dá um e-mail a cada ~4 min 10 s.
 
-#### A implementação
+#### O acumulador: algoritmo de Welford
+
+Calcular desvio padrão exige, à primeira vista, guardar as 25 amostras para depois percorrer o vetor duas vezes (uma para a média, outra para os desvios). A alternativa clássica é o método "ingênuo", acumulando Σx e Σx²:
+
+```
+s² = (Σx² − n·x̄²) / (n − 1)
+```
+
+Esse método é numericamente perigoso justamente no caso deste projeto. A pressão fica em torno de **1013 hPa variando décimos**: Σx² para 25 amostras chega a ~2,6 × 10⁷, enquanto a variância real é da ordem de 0,01. Subtrair dois números grandes e quase iguais para obter um número pequeno é **cancelamento catastrófico** — em `float` (24 bits de mantissa, ~7 dígitos significativos) o resultado pode sair errado, ou até negativo, produzindo `NaN` na raiz quadrada.
+
+A solução é o **algoritmo de Welford**, que atualiza média e dispersão de forma incremental:
 
 ```cpp
-bool enviarEmailAlerta() {
+void adicionar(double x) {
+    if (n == 0) { minimo = maximo = x; }
+    else { if (x < minimo) minimo = x; if (x > maximo) maximo = x; }
+
+    n++;
+    double delta = x - media;
+    media += delta / (double)n;      // média corrente atualizada
+    m2    += delta * (x - media);    // usa a média NOVA: essa é a chave
+}
+
+double desvioPadrao() const {
+    return (n < 2) ? 0.0 : sqrt(m2 / (double)(n - 1));
+}
+```
+
+A sutileza está na última linha de `adicionar()`: `delta` é calculado com a média **anterior** e multiplicado pela diferença em relação à média **posterior**. Esse produto cruzado é o que mantém `m2` (a soma dos quadrados dos desvios) numericamente estável, sem nunca formar a diferença de dois números grandes.
+
+Três propriedades tornam o algoritmo adequado a um microcontrolador:
+
+- **Memória constante.** Quatro `double` por grandeza, independentemente do tamanho da amostra. Não há vetor de 25 posições — e mudar `LEITURAS_POR_RELATORIO` para 500 não custaria um byte a mais.
+- **Uma única passagem.** Cada leitura é processada quando chega e descartada em seguida.
+- **Estabilidade numérica.** Os acumuladores são `double` (64 bits reais no ESP32), o que somado ao método elimina o problema de precisão descrito acima.
+
+O divisor `n − 1` é a **correção de Bessel**: as 25 medições são uma *amostra* de um processo contínuo, não a população inteira, e dividir por `n` subestimaria sistematicamente a dispersão real.
+
+Mínimo e máximo saem de graça, atualizados na mesma passagem, e dizem algo que a média esconde: uma temperatura de 24,3 ± 0,2 °C é bem diferente de 24,3 ± 0,2 °C com máximo de 31 °C — o segundo caso denuncia um transiente que a média diluiu.
+
+#### A implementação do envio
+
+```cpp
+bool enviarRelatorioEstatistico() {
+    if (estatTemp.n == 0) return false;    // nada a relatar
+
+    // ... monta 'texto' e 'html' a partir dos quatro acumuladores ...
+
     auto statusCallback = [](SMTPStatus status) {
         Serial.println(status.text);
     };
@@ -503,15 +622,43 @@ bool enviarEmailAlerta() {
     SMTPMessage msg;
     msg.headers.add(rfc822_from, String("ESP32 <") + EMAIL_REMETENTE + ">");
     msg.headers.add(rfc822_to, EMAIL_DESTINO);
-    msg.headers.add(rfc822_subject, "Alerta: 25 Leituras Concluidas!");
-    msg.text.body(String("O ESP32 acabou de registrar e salvar ") + LEITURAS_PARA_EMAIL +
-                  " novas leituras no Google Sheets.\r\n" +
-                  "Hora: " + horaFormatada() + "\r\n");
+    msg.headers.add(rfc822_subject,
+                    String("Relatorio de ") + n + " leituras - " + agora);
+    msg.text.body(texto);     // versão em texto puro
+    msg.html.body(html);      // versão formatada, com tabela
     msg.timestamp = time(nullptr);
 
     return smtp.send(msg);
 }
 ```
+
+**Guarda de janela vazia.** O `if (estatTemp.n == 0)` protege o comando manual `/relatorio`: pedir o relatório logo após um envio automático, com a janela recém-zerada, produziria divisão por zero na média. A função recusa e avisa, em vez de mandar um e-mail com `NaN`.
+
+**Corpo duplo (texto + HTML).** Definir `text.body()` e `html.body()` produz uma mensagem `multipart/alternative`: o cliente de e-mail escolhe a versão que sabe exibir. O HTML monta a tabela formatada; o texto puro é o que aparece em clientes antigos, em notificações de celular e no preview da caixa de entrada — e é também o que garante que a mensagem não caia em spam por ser só HTML.
+
+O corpo em texto sai assim:
+
+```
+Relatorio automatico da estacao ESP32
+=====================================
+
+Amostras: 25
+Periodo:  2026-09-03 14:00:12  ate  2026-09-03 14:04:22
+
+Grandeza         Media       DP       Min        Max
+-----------------------------------------------------------
+Temperatura   media    24.31  dp   0.18  min    24.02  max    24.55  C
+Umidade       media    61.04  dp   0.93  min    59.70  max    62.80  %
+Pressao       media  1013.42  dp   0.07  min  1013.31  max  1013.55  hPa
+Altitude      media   612.85  dp   0.61  min   611.90  max   613.94  m
+
+Botao: SOLTO  (3 toque(s) no periodo)
+LED:   LIGADO
+```
+
+A formatação em colunas vem de `snprintf` com largura fixa (`%-13s`, `%8.2f`), e não de concatenação de `String`. Em texto monoespaçado, isso mantém as colunas alinhadas — algo que `String(valor, 2)` não garante, porque o número de dígitos varia. Duas casas decimais em todas as grandezas correspondem à resolução útil do BME280; mais dígitos seriam ruído apresentado como precisão.
+
+**O estado do botão e do LED entram no relatório**, fechando o ciclo com a planilha: o e-mail informa o estado instantâneo no fechamento da janela e quantos toques ocorreram no período, enquanto as colunas F e G guardam o instantâneo de cada uma das 25 linhas.
 
 **O cliente TLS vem no construtor.**
 
@@ -594,11 +741,14 @@ Assim, acrescentar um ID ao vetor não exige tocar em mais nada.
 
 | Comando | Ação |
 |---|---|
-| `/status` | Lê o sensor na hora e devolve as quatro grandezas formatadas em Markdown |
-| `/led_on` | `digitalWrite(LEDPIN, HIGH)` |
-| `/led_off` | `digitalWrite(LEDPIN, LOW)` |
-| `/email` | Dispara `enviarEmailAlerta()` sem esperar as 25 leituras — comando de teste |
+| `/status` | Lê o sensor na hora e devolve as quatro grandezas + estado do botão e do LED |
+| `/stats` | Média e desvio padrão **parciais** da janela em andamento, com o progresso (`n/25`) |
+| `/led_on` | `setLed(true)` |
+| `/led_off` | `setLed(false)` |
+| `/relatorio` | Dispara `enviarRelatorioEstatistico()` sem esperar as 25 leituras — comando de teste |
 | qualquer outro | Devolve a lista de comandos válidos |
+
+O `/stats` é a contrapartida remota do e-mail: como o relatório só chega a cada ~4 minutos, ele permite consultar a estatística acumulada até o momento sem interromper a janela. Nada é zerado — só o envio automático (ou o `/relatorio`) reinicia os acumuladores.
 
 ```cpp
 if (texto == "/status") {
@@ -606,6 +756,8 @@ if (texto == "/status") {
     String resposta = "📊 *Status Atual do ESP32*\n\n";
     resposta += "🌡️ Temperatura: " + String(d.temperatura, 2) + " °C\n";
     // ...
+    resposta += "🔘 Botão: " + String(botaoEstado ? "PRESSIONADO" : "SOLTO") + "\n";
+    resposta += "💡 LED: "   + String(ledEstado   ? "LIGADO"      : "DESLIGADO");
     if (!sensorOk) resposta += "\n\n⚠️ BME280 nao detectado.";
     bot.sendMessage(chat_id, resposta, "Markdown");
 }
@@ -679,7 +831,8 @@ Cada canal é independente e pode ser validado isoladamente. Sugestão de ordem,
 3. **BME280** — confirme "Sensor BME280 - OK". Se falhar, verifique endereço (`0x76` ou `0x77`) e os pinos 21/22.
 4. **Servidor web** — abra o IP no navegador; a página deve carregar e o gráfico começar a se mover em ~1 s. Se der 404, você esqueceu de subir a imagem do LittleFS.
 5. **Google Sheets** — acompanhe os logs de token no serial. `Token: ready` seguido de "Dado salvo com sucesso" fecha o canal. Erro `403` significa planilha não compartilhada com o `client_email`.
-6. **Telegram** — mande `/status` ao bot.
-7. **E-mail** — use `/email` pelo Telegram em vez de esperar 25 leituras (~4 min). O diálogo SMTP completo aparece no serial.
+6. **Telegram** — mande `/status` ao bot. Segure o botão PRG enquanto envia e confira se ele reporta `PRESSIONADO`; mande `/led_on` e veja o LED acender e a coluna G mudar na próxima gravação.
+7. **Estatística** — mande `/stats` algumas vezes ao longo de um minuto e acompanhe `n` subindo e o desvio se estabilizando.
+8. **E-mail** — use `/relatorio` pelo Telegram em vez de esperar 25 leituras (~4 min). O diálogo SMTP completo aparece no serial. Confira se os valores do relatório batem com as últimas linhas da planilha.
 
 Para testar Sheets e e-mail em uma placa sem BME280, o `sensorOk` já garante que o firmware sobe e roda com valores zerados.
