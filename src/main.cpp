@@ -28,22 +28,22 @@
 // =====================================================================
 
 // ------------------------------ WiFi ---------------------------------
-const char *WIFI_SSID = "Integral";
-const char *WIFI_PASS = "12345678";
+const char *WIFI_SSID = "xxx";
+const char *WIFI_PASS = "xxx";
 
 // ------------------------- Google Sheets -----------------------------
-#define PROJECT_ID   "t1ric-507422"
-#define CLIENT_EMAIL "t1ric-teste@t1ric-507422.iam.gserviceaccount.com"
+#define PROJECT_ID   "xxx"
+#define CLIENT_EMAIL "xxx"
 
-#define SPREADSHEET_ID "1XZfgr09i9FXPgj2rR4LeXOm5bVDbJbo2VzwFvYy5pNQ"
+#define SPREADSHEET_ID "xxx"
 
 #define SHEET_RANGE "Dados!A:E"
 
-const char PRIVATE_KEY[] PROGMEM = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDGONG+xlKczpmS\njwF2mY95Ys4hP5OY7lb1lf6sR/4G86vgiDdjv2+QWed9z641uGpQ6x+a40l12MO1\nx2sAyEkqdHzxgC99326tfStYCyyyrNOEvxsK+77bn0DicoIPTpi3jX0J+XGSM1yI\nZoRuKfOHd/J9PLZgtbquo89XhBqrs5aM1L9zLG0KTfvWLhMHB7l+lKQ6Ta66E1f4\nnp2hYT2iPArZsL02YleOHzt2mHMRaPCybjbEgue5kPXB8zjk34iVeub6p0KsLcGE\ndWCeqlWYdopEwCxM2zKMdaECUdM6IMz+Pip4ogx8RAXXH2QhI2NnNC+9lZsZK/9U\n9IJLN38NAgMBAAECggEAEvVEOjbFl/G6hmXfAfTV4AovJMbr2uiQsJRT8y4/gXK0\nsZjVk1iv1uKCXWoLg1/L60lRkILEd9zveudDuKNvO/xAJujXofZIo5chGh6Xe89D\nu6J7d6V0L5Ufo4jIH6aovIVvvBB7aDw5UWJcsBybCg3Sx1+TIdS/sgxAvGIKGvm7\nCETCMWnCkjnyp1/uukH2q5n32YLaLnzggzj/1F3S+JuvNUxFAxFJoAXpZ8PDYiB9\nMqj2fRM8PYoClPV3RvfL+hvO0rxVEi/P3UvagHh6t+bus5OrhKAoTuz4PtX1NIji\n6du0zaWwLdcPs1oveMjuG5a63NGp0up3CDUGmo4lAQKBgQDkgkXqEHuYcoB5RDrw\n2yV2SoiA5+jaKnsGEYlhsJIcY0MtSn6PHeFelrPhm5c99dhGjYtj8oAuoFt++mHC\nNMq45G75mzFnXjoD6X6afE+ZzqA5gUAPh+HlCkfcYkpf2EAtBVGqAyC8iWX9E+oi\nBSvEUn8nWkk4A7vNxh+KCo1D/QKBgQDeEcE21BIzBWcKmlbdyyQQATai70gW/2DQ\nrF8dqVleFV4pfG4K1cFP01VmsXYNKxclMjGvH2CbVWZ4SsCBIDDKYs0nwVprIVDw\n26t4B8RNqWwuriphX18LN8sgclvpO7oXnC+zidMV+MeW9XLlhVL9fL1DtZ15R0EQ\nSOhLwGOsUQKBgHKAEJZbkgLuhQ++r6YWuWvPpxyomBYRqTl+Og+4UU5mMrgUFtyR\nxWcHLrWCqENE2A1qSYlYbwBuG8rBnZCZsWb6F9189UFthraFHoo8dgqE7eZCrJ3b\nocaJ4z48BjaGfonQm34MOTAfzPoGK5DGdIrYJ5zJcdzeihFvEEi0RtrlAoGAd2VM\nYNI8xrnM4OKCedVSmlhMq+XC+Lptr0Q+D5CRwAf1DJEeCS1MNkMF06TuN75HP3Rx\nShqwslOEOIDYZ5SLJwVgEFPg7WCISDeTRYHHhYnl5GM33gqM61cgG13hFNFMCI2t\nB/a+Sz3q8bsd/1FjgW6jw9fNxvsMfFj2rGPQM0ECgYEAq8A29sy4oWj29QTI0Y/n\nnnnFuuaM1crwKw8Z8WYd1ooIzOqgH3+IQpk8CJpegU33IyEhGGKthV/4XYUadDQq\nNc1+HhmUHIJcXrreKPBKSRE5Sz67gB1tXV+6V4biE7wj7xvknlViVtiZwc1DePNt\nIwMKSW+dBCgM+SvaSt8RXLY=\n-----END PRIVATE KEY-----\n";
+const char PRIVATE_KEY[] PROGMEM = "xxx";
 
 // ---------------------------- Telegram -------------------------------
-#define BOT_TOKEN "8943822736:AAFj5-B3cNi1ybGmDPWTOkC0Yb8QrjS9Vo4"
-#define MY_ID     "8895625689"
+#define BOT_TOKEN "xxx"
+#define MY_ID     "xxx"
 
 const char *validoChatIds[] = {
     MY_ID,
@@ -51,11 +51,11 @@ const char *validoChatIds[] = {
 const int numUserAutorizado = sizeof(validoChatIds) / sizeof(validoChatIds[0]);
 
 // ------------------------------ E-mail -------------------------------
-#define SMTP_HOST       "smtp.gmail.com"
+#define SMTP_HOST       "xxx"
 #define SMTP_PORT       465
-#define EMAIL_REMETENTE "guilherme.bertola.123@gmail.com"
-#define EMAIL_SENHA_APP "ioby kcwd rugx lvqv"
-#define EMAIL_DESTINO   "guilherme.bertola.123@gmail.com"
+#define EMAIL_REMETENTE "xxx"
+#define EMAIL_SENHA_APP "xxx"
+#define EMAIL_DESTINO   "xxx"
 
 // ------------------------------ Pinos --------------------------------
 #define LEDPIN 25
