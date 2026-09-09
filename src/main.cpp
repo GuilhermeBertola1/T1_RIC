@@ -28,8 +28,8 @@
 // =====================================================================
 
 // ------------------------------ WiFi ---------------------------------
-const char *WIFI_SSID = "BERTOLA_2.4G";
-const char *WIFI_PASS = "170704gui";
+const char *WIFI_SSID = "Integral";
+const char *WIFI_PASS = "12345678";
 
 // ------------------------- Google Sheets -----------------------------
 #define PROJECT_ID   "t1ric-507422"
